@@ -1,19 +1,22 @@
 #INCLUDE <P16F873A.INC>    
 __CONFIG _FOSC_XT & _WDTE_OFF & _PWRTE_ON & _BOREN_ON & _LVP_OFF & _CPD_OFF & _WRT_OFF & _CP_OFF
 
-TIQUES EQU 0x20 ; Contador do LED
-TIQUES_T EQU 0x21 ; Valor de tiques atual
-AUX EQU 0x22 ; Auxiliar para verificação do byte recebido
+TIQUES EQU 0x20 ; Contador do LED que decrementa cada vez que entra na interrupção
+TIQUES_T EQU 0x21 ; Valor fixo de tiques para o valor recebido
+AUX EQU 0x22 ; Auxiliar para verificação do valor do byte recebido
 
 
     ORG 0x0000
     	GOTO INICIO
 
-    ORG 0x0004	
+	;-----------------------
+	; Rotina da interrupção
+	;-----------------------
+    ORG 0x0004		
         BCF INTCON, T0IF ; Apaga o bit de flag de interrupção do INTCON
 
         MOVLW D'131'
-        MOVWF TMR0 ; TMR0 = 131 
+        MOVWF TMR0
 
         DECFSZ TIQUES,1 ; Decrementa TIQUES e se o resultado for 0 ele pula a próxima linha
         GOTO FIM_INTERR
@@ -33,20 +36,22 @@ INICIO:
     ; Configuração dos registradores I/O
     ;------------------------------------
     BANKSEL TRISB       
-    MOVLW B'00000000'     
-    MOVWF TRISB
+    CLRF TRISB    ; Todas as portas RB são setadas como saída
+ 	
+	BANKSEL PORTB 
+	CLRF PORTB	; Todas as portas RB iniciam desligadas
 
 	BANKSEL TRISC       
-    MOVLW B'10000000'     ; RC7 = RX input, RC6 = TX output
+    MOVLW B'10000000'	; RC7 = RX input, RC6 = TX output
     MOVWF TRISC
 
-	BANKSEL SPBRG
-    MOVLW d'25'
-    MOVWF SPBRG           ; Set baud rate
-
-    ;--------------------------------------
+	;--------------------------------------
     ; Configuração dos registradores USART 
     ;--------------------------------------
+	BANKSEL SPBRG
+    MOVLW d'25' ; Define que serão transmitidos 9600 bytes/segundo
+    MOVWF SPBRG           
+
 	BANKSEL TXSTA
 	MOVLW b'00100100'
 	MOVWF TXSTA
@@ -55,31 +60,39 @@ INICIO:
 	MOVLW b'10010000'
 	MOVWF RCSTA
     
-    ; INTERRUPÇÃO
+	;-----------------------------------------------
+    ; Configuração dos registradores da interrupção 
+    ;-----------------------------------------------
     BANKSEL OPTION_REG
     MOVLW B'10000101'   
-    MOVWF OPTION_REG ; Define os bits de OPITON_REG para configurar o clock do próprio PIC como fonte da interrupção além de definir o divisor(PRESCALER) como sendo 64
+    MOVWF OPTION_REG 
 
     BANKSEL TMR0
-    MOVLW D'131'
-    MOVWF TMR0 ; TMR0 = 131
+    MOVLW D'131' ; Valor escolhido para que sejam geradas 125 interrupções por segundo
+    MOVWF TMR0 
 
     BANKSEL INTCON
     MOVLW B'10100000'
-    MOVWF INTCON; Define os bits de INTCON para definir corretamente as interrupções 
-
+    MOVWF INTCON 
+	
+	;--------------------------------------------------------
+	; Inicializando para o LED poiscar a cada 0.125 segundos 
+	;--------------------------------------------------------
     MOVLW D'15'
     MOVWF TIQUES_T
     MOVWF TIQUES 
 
-    ; Wait for a byte to be received
+
+;------------------------------------------------------------
+; Rotina para esperar um byte e verificar o valor recebido
+;------------------------------------------------------------
 RECEBER_BYTE:
 	BANKSEL PIR1
     BTFSS PIR1, RCIF      ; Verifica a flag RCIF para verificar se chegou algum byte
     GOTO RECEBER_BYTE	
 
 	BANKSEL RCREG
-    MOVF RCREG, W         ; Read received byte
+    MOVF RCREG, W         ; Lê o byte recebido
     MOVWF AUX
 
     ; Verificar qual byte foi recebido
@@ -105,38 +118,40 @@ RECEBER_BYTE:
     GOTO RECEBER_BYTE;NÃO
 
 DEU_UM:
-    MOVLW D'15'
+    MOVLW D'15' ; Valor equivalente à 0.125 segundo
     MOVWF TIQUES
     MOVWF TIQUES_T
     GOTO TRANSMITIR_BYTE
 
 DEU_DOIS:
-    MOVLW D'31'
+    MOVLW D'31' ; Valor equivalente à 0.25 segundo
     MOVWF TIQUES
     MOVWF TIQUES_T
     GOTO TRANSMITIR_BYTE
 
 DEU_TRES:
-    MOVLW D'62'
+    MOVLW D'62' ; Valor equivalente à 0.5 segundo
     MOVWF TIQUES
     MOVWF TIQUES_T
     GOTO TRANSMITIR_BYTE
 
 DEU_QUATRO:
-    MOVLW D'125'
+    MOVLW D'125' ; Valor equivalente à 1 segundo
     MOVWF TIQUES
     MOVWF TIQUES_T
     GOTO TRANSMITIR_BYTE
 
-
+;--------------------------------------
+; Rotina para enviar o byte recebido 
+;--------------------------------------
 TRANSMITIR_BYTE:
 	BANKSEL PIR1
     BTFSS PIR1, TXIF      ; Verifica se a flag TXIF está setada para saber se o buffer de transmissão está livre
     GOTO TRANSMITIR_BYTE
-    MOVF TIQUES_T,W		; Move o valor a ser transmitido
+    MOVF TIQUES_T,W		
 
 	BANKSEL TXREG
-    MOVWF TXREG           ; Echo byte
+    MOVWF TXREG           ; Envia byte
     GOTO RECEBER_BYTE
 
     END
